@@ -1,0 +1,11 @@
+*.swp
+*.swo
+*~
+*.DS_Store
+env
+__pycache__
+*.pyc
+!.gitkeep
+*.xls
+*.xlsx
+*.csv
