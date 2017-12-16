@@ -1,4 +1,5 @@
 import csv
+import os
 import math
 import json
 import pandas as pd
@@ -8,7 +9,7 @@ import requests
 
 class TradeHistory:
     columns = [
-        'market', 'type', 'price', 'cost', 'amount', 'time',
+        'market', 'type', 'price', 'cost', 'amount', 'time', 'exchange',
     ]
     def __init__(self):
         self.data = pd.DataFrame(columns=TradeHistory.columns)
@@ -29,6 +30,7 @@ class TradeHistory:
                     'type': '預入',
                     'price': 0,
                     'cost': 0,
+                    'exchange': 'zaif',
                 }
                 data2 = data2.append(pd.DataFrame(d, index=[0]), ignore_index=True)
             return data2
@@ -44,6 +46,23 @@ class TradeHistory:
                     'type': '預入',
                     'price': 0,
                     'cost': 0,
+                    'exchange': 'zaif',
+                }
+                data2 = data2.append(pd.DataFrame(d, index=[0]), ignore_index=True)
+            return data2
+        elif type == 'zaif_purchase':
+            data = data.sort_values(by='日時', ascending=True)
+            data['日時'] = pd.to_datetime(data['日時'])
+            data2 = pd.DataFrame(columns=TradeHistory.columns)
+            for index, row in data.iterrows():
+                d = {
+                    'time': row['日時'],
+                    'amount': row['数量'],
+                    'market': row['通貨'],
+                    'type': '購入',
+                    'price': 0,
+                    'cost': row['価格'],
+                    'exchange': 'zaif',
                 }
                 data2 = data2.append(pd.DataFrame(d, index=[0]), ignore_index=True)
             return data2
@@ -59,6 +78,7 @@ class TradeHistory:
                     'type': '受取',
                     'price': 0,
                     'cost': 0,
+                    'exchange': 'zaif',
                 }
                 data2 = data2.append(pd.DataFrame(d, index=[0]), ignore_index=True)
             return data2
@@ -74,6 +94,7 @@ class TradeHistory:
                     'type': '出金',
                     'price': 0,
                     'cost': row['手数料'] ,
+                    'exchange': 'zaif',
                 }
                 data2 = data2.append(pd.DataFrame(d, index=[0]), ignore_index=True)
             return data2
@@ -91,6 +112,7 @@ class TradeHistory:
                 '数量': 'amount',
                 '日時': 'time',
             }, inplace=True)
+            data = pd.concat([data, pd.DataFrame(['zaif' for i in range(len(data.index))], columns=['exchange'])], axis=1)
             return data
         elif type == 'bitflyer':
             data = data.sort_values(by='取引日時', ascending=True)
@@ -101,6 +123,7 @@ class TradeHistory:
                     'time': row['取引日時'],
                     'type': row['取引種別'],
                     'price': row['価格'],
+                    'exchange': 'bitflyer',
                 }
                 if row['通貨'] == 'BTC':
                     # 預入 or 受け取り or 外部送付 or 手数料
@@ -135,16 +158,22 @@ class TradeHistory:
 
 
 class ProfitCalculator:
+    # variation of coins
     coins = [
-        'jpy', 'btc', 'bch', 'eth', 'mona',
-        'xem', 'zaif', 'pepecash', 'xcp', 'erc20.cms'
+        'jpy', 'btc', 'bch', 'eth', 'mona', 'xem',
+        'zaif', 'xcp', 'bitcrystals', 'sjcx', 'fscc', 'pepecash', 'cicc',
+        'ncxc', 'jpyz', 'erc20.cms', 'mosaic.cms',
     ]
-    hf_times = {
+    # Timestamps for hard forks
+    hf_timestamps = {
         'bch': 1501611180,
     }
+    # Endpoint of Zaif API
     zaif_api = 'https://zaif.jp/zaif_chart_api/v1/history'
     def __init__(self, initial = {}):
+        # Amount of every coin
         self.coins = {k: 0 for k in ProfitCalculator.coins}
+        # Acquisition cost of every coin
         self.acq_costs = {k: 0 for k in ProfitCalculator.coins}
 
         self.hf_flags = {
@@ -158,44 +187,53 @@ class ProfitCalculator:
     def print_status(self):
         print('--------------------------------------------------')
         for key, row in self.coins.items():
-            print(key.upper() + ':', round(self.coins[key], 8))
-            print(key.upper() + ' Acquisition cost:', round(self.acq_costs[key], 8))
+            if self.coins[key] > 0:
+                print(key.upper() + ':', round(self.coins[key], 8))
+                print(key.upper() + ' Acquisition cost:', round(self.acq_costs[key], 8))
         print()
         print('Profits:', round(self.profit))
         print('Spent:', round(self.deposit_jpy))
         print('Acquisition cost:', sum([self.coins[c] * self.acq_costs[c] for c in ProfitCalculator.coins]))
         print('--------------------------------------------------')
-    def purchase(self, coin_type, amount, cost):
-        self.deposit_jpy += cost
+    #def purchase(self, coin_type, amount, cost):
+    def purchase(self, row):
+        self.deposit_jpy += row['cost']
+        coin_type = row['market']
         if self.acq_costs[coin_type] == 0:
             # if not coin yet
-            self.coins[coin_type] = amount
-            self.acq_costs[coin_type] = cost / self.coins[coin_type]
+            self.coins[coin_type] = row['amount']
+            self.acq_costs[coin_type] = row['cost'] / self.coins[coin_type]
         else:
             # if you already have coins
             former_cost = self.acq_costs[coin_type] * sef.coins[coin_type]
-            new_cost = former_cost + cost
-            self.coins[coin_type] += amount
+            new_cost = former_cost + row['cost']
+            self.coins[coin_type] += row['amount']
             self.acq_costs[coin_type] = new_cost / self.coins[coin_type]
     def get_coin_type(self, market):
         return market.split('_')[0]
-    def read_log(self, data_list):
+    def load_history(self, data_list):
         for item in data_list['zaif_trade']:
-            print(item)
             self.trade.append_data(pd.read_csv(item['path']), 'zaif')
         for item in data_list['zaif_deposit']:
-            self.trade.append_data(pd.read_csv(item['path']), 'zaif_deposit', item['currency'])
+            if os.path.exists(item['path']):
+               self.trade.append_data(pd.read_csv(item['path']), 'zaif_deposit', item['currency'])
         for item in data_list['zaif_token_deposit']:
-            self.trade.append_data(pd.read_csv(item['path']), 'zaif_token_deposit')
+            if os.path.exists(item['path']):
+                self.trade.append_data(pd.read_csv(item['path']), 'zaif_token_deposit')
         for item in data_list['zaif_withdraw']:
-            self.trade.append_data(pd.read_csv(item['path']), 'zaif_withdraw', item['currency'])
+            if os.path.exists(item['path']):
+                self.trade.append_data(pd.read_csv(item['path']), 'zaif_withdraw', item['currency'])
+        for item in data_list['zaif_purchase']:
+            if os.path.exists(item['path']):
+                self.trade.append_data(pd.read_csv(item['path']), 'zaif_purchase')
         for item in data_list['zaif_bonus']:
-            self.trade.append_data(pd.read_csv(item['path']), 'zaif_bonus')
+            if os.path.exists(item['path']):
+                self.trade.append_data(pd.read_csv(item['path']), 'zaif_bonus')
         for item in data_list['bitflyer']:
-            self.trade.append_data(pd.read_csv(item['path']), 'bitflyer')
+            if os.path.exists(item['path']):
+                self.trade.append_data(pd.read_csv(item['path']), 'bitflyer')
         self.trade.data = self.trade.data.sort_values(by='time')
         self.trade.data = self.trade.data.reset_index(drop=True)
-        print(self.trade.data)
     def get_fair_value(self, time, symbol):
         time = time - timedelta(seconds=time.second)
         params = {
@@ -219,7 +257,11 @@ class ProfitCalculator:
         if row['market'].endswith('_jpy'):
             # self.profit += row['price'] * row['amount'] - math.ceil(self.acq_costs[coin_type] * row['amount'])
             self.profit += (row['price'] - math.ceil(self.acq_costs[coin_type])) * row['amount']
-            self.coins['jpy'] += row['price'] * row['amount'] - row['cost']
+            if row['exchange'] == 'zaif':
+                self.coins['jpy'] += row['price'] * row['amount'] - row['cost']
+            elif row['exchange'] == 'bitflyer':
+                print('bid', math.floor(row['price'] * row['amount']))
+                self.coins['jpy'] += math.floor(row['price'] * row['amount']) - row['cost']
         elif row['market'].endswith('_btc'):
             # Call an API to get a fair value at this moment.
             fair_value = self.get_fair_value(row['time'], 'BTC_JPY')
@@ -233,14 +275,17 @@ class ProfitCalculator:
                 cost = former_cost + fair_value * new_coins
                 self.coins['btc'] += new_coins - row['cost']
                 self.acq_costs['btc'] = cost / self.coins['btc']
-                print('price =', row['price'] * fair_value, coin_type)
         self.coins[coin_type] -= row['amount']
     def ask(self, row): # 買い
         # Unit of fee in ask is buying currency
         coin_type = self.get_coin_type(row['market'])
         if row['market'].endswith('_jpy'):
             jpy = row['amount'] * row['price']
-            self.coins['jpy'] -= jpy
+            if row['exchange'] == 'zaif':
+                self.coins['jpy'] -= jpy
+            elif row['exchange'] == 'bitflyer':
+                print('ask:', math.ceil(jpy))
+                self.coins['jpy'] -= math.ceil(jpy)
             if self.coins[coin_type] == 0:
                 # if this was the first time to by this type of coin
                 self.coins[coin_type] = row['amount'] - row['cost']
@@ -297,14 +342,15 @@ class ProfitCalculator:
         else:
             self.coins[coin_type] -= row['amount'] + row['cost']
     def check_hard_fork(self, row):
-        if row['time'].timestamp() > ProfitCalculator.hf_times['bch'] and not self.hf_flags['bch']:
-            self.coins['bch'] = self.coins['btc']
-            self.hf_flags['bch'] = True
+        for coin, flag in self.hf_flags.items():
+            if row['time'].timestamp() > ProfitCalculator.hf_timestamps[coin] and not flag:
+                self.coins[coin] = self.coins['btc']
+                self.hf_flags[coin] = True
     def calculate(self, num_of_tx = 0):
         n = 0
         for index, row in self.trade.data.iterrows():
             n = n + 1
-            print(row)
+            #print(row)
             self.check_hard_fork(row)
             if row['type'] == '売り':
                 self.bid(row)
@@ -320,7 +366,9 @@ class ProfitCalculator:
                 self.fee(row)
             elif row['type'] == '外部送付':
                 self.sending(row)
-            self.print_status()
+            elif row['type'] == '購入':
+                self.purchase(row)
+            # self.print_status()
             if n == num_of_tx:
                 break
 
@@ -345,6 +393,9 @@ if __name__ == "__main__":
             { 'path': 'mona_withdraw.csv', 'currency': 'mona' },
             { 'path': 'token_withdraw_ZAIF.csv', 'currency': 'zaif' },
         ],
+        'zaif_purchase': [
+            { 'path': 'purchase.csv' },
+        ],
         'zaif_bonus': [
             { 'path': 'obtain_bonus.csv' },
         ],
@@ -354,8 +405,7 @@ if __name__ == "__main__":
     }
 
     cal = ProfitCalculator()
-    cal.read_log(data_list)
-    # purchase by credit card
-    cal.purchase('mona', 233.01, 10000)
+    cal.load_history(data_list)
     cal.calculate()
+    cal.print_status()
 
