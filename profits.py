@@ -7,100 +7,44 @@ from datetime import datetime, timedelta
 from future.moves.urllib.parse import urlencode
 import requests
 
+# global settings
+exchanges = {
+    'ZAIF': 'zaif',
+    'BF': 'bitflyer',
+}
+tx_types = {
+    'BID': '売り',
+    'ASK': '買い',
+    'RECEIVE': '受取',
+    'WITHDRAW': '出金',
+    'DEPOSIT': '預入',
+    'FEE': '手数料',
+    'SEND': '外部送付',
+    'PURCHASE': '購入',
+}
+
 class TradeHistory:
     columns = [
         'market', 'type', 'price', 'cost', 'amount', 'time', 'exchange',
     ]
+    bf_currencies = [
+        'BTC', 'ETH', 'ETC', 'LTC', 'BCH', 'MONA', 'JPY',
+    ]
     def __init__(self):
         self.data = pd.DataFrame(columns=TradeHistory.columns)
+    def __getattr__(self, name):
+        # wrapping pandas dataframe
+        return self.data[name]
     def head(self, rows = 5):
         return self.data.head(rows)
     def tail(self, rows = 5):
         return self.data.tail(rows)
+    def set_data(self, data, type):
+        self.data = self.format_data(data, type)
+    def append_data(self, data, type, currency=''):
+        self.data = self.data.append(self.format_data(data, type, currency))
     def format_data(self, data, type, currency = ''):
-        if type == 'zaif_deposit':
-            data = data.sort_values(by='日時', ascending=True)
-            data['日時'] = pd.to_datetime(data['日時'])
-            data2 = pd.DataFrame(columns=TradeHistory.columns)
-            for index, row in data.iterrows():
-                d = {
-                    'time': row['日時'],
-                    'amount': row['金額'],
-                    'market': currency,
-                    'type': '預入',
-                    'price': 0,
-                    'cost': 0,
-                    'exchange': 'zaif',
-                }
-                data2 = data2.append(pd.DataFrame(d, index=[0]), ignore_index=True)
-            return data2
-        elif type == 'zaif_token_deposit':
-            data = data.sort_values(by='日時', ascending=True)
-            data['日時'] = pd.to_datetime(data['日時'])
-            data2 = pd.DataFrame(columns=TradeHistory.columns)
-            for index, row in data.iterrows():
-                d = {
-                    'time': row['日時'],
-                    'amount': row['金額'],
-                    'market': row['トークン'].lower(),
-                    'type': '預入',
-                    'price': 0,
-                    'cost': 0,
-                    'exchange': 'zaif',
-                }
-                data2 = data2.append(pd.DataFrame(d, index=[0]), ignore_index=True)
-            return data2
-        elif type == 'zaif_purchase':
-            data = data.sort_values(by='日時', ascending=True)
-            data['日時'] = pd.to_datetime(data['日時'])
-            data2 = pd.DataFrame(columns=TradeHistory.columns)
-            for index, row in data.iterrows():
-                d = {
-                    'time': row['日時'],
-                    'amount': row['数量'],
-                    'market': row['通貨'],
-                    'type': '購入',
-                    'price': 0,
-                    'cost': row['価格'],
-                    'exchange': 'zaif',
-                }
-                data2 = data2.append(pd.DataFrame(d, index=[0]), ignore_index=True)
-            return data2
-        elif type == 'zaif_bonus':
-            data = data.sort_values(by='支払日時', ascending=True)
-            data['支払日時'] = pd.to_datetime(data['支払日時'])
-            data2 = pd.DataFrame(columns=TradeHistory.columns)
-            for index, row in data.iterrows():
-                d = {
-                    'time': row['支払日時'],
-                    'amount': row['支払ボーナス'],
-                    'market': 'jpy',
-                    'type': '受取',
-                    'price': 0,
-                    'cost': 0,
-                    'exchange': 'zaif',
-                }
-                data2 = data2.append(pd.DataFrame(d, index=[0]), ignore_index=True)
-            return data2
-        elif type == 'zaif_withdraw':
-            data = data.sort_values(by='日時', ascending=True)
-            data['日時'] = pd.to_datetime(data['日時'])
-            data2 = pd.DataFrame(columns=TradeHistory.columns)
-            for index, row in data.iterrows():
-                d = {
-                    'time': row['日時'],
-                    'amount': row['金額'],
-                    'market': currency,
-                    'type': '出金',
-                    'price': 0,
-                    'cost': row['手数料'] ,
-                    'exchange': 'zaif',
-                }
-                data2 = data2.append(pd.DataFrame(d, index=[0]), ignore_index=True)
-            return data2
-        elif type == 'zaif':
-            data = data.sort_values(by='日時', ascending=True)
-            data['日時'] = pd.to_datetime(data['日時'])
+        if type == 'zaif':
             data.drop('コメント', axis=1, inplace=True)
             if 'ボーナス円' in data.columns:
                 data.drop('ボーナス円', axis=1, inplace=True)
@@ -112,49 +56,87 @@ class TradeHistory:
                 '数量': 'amount',
                 '日時': 'time',
             }, inplace=True)
-            data = pd.concat([data, pd.DataFrame(['zaif' for i in range(len(data.index))], columns=['exchange'])], axis=1)
+            data = pd.concat([
+                data,
+                pd.DataFrame(
+                    [exchanges['ZAIF'] for i in range(len(data.index))],
+                    columns=['exchange']
+                ),
+            ], axis=1)
             return data
-        elif type == 'bitflyer':
-            data = data.sort_values(by='取引日時', ascending=True)
-            data['取引日時'] = pd.to_datetime(data['取引日時'])
-            data2 = pd.DataFrame(columns=TradeHistory.columns)
-            for index, row in data.iterrows():
-                d = {
-                    'time': row['取引日時'],
-                    'type': row['取引種別'],
-                    'price': row['価格'],
-                    'exchange': 'bitflyer',
+        else:
+            # for row-wise process
+            if type == 'bitflyer':
+                def rule(row, currency):
+                    if row['通貨'].endswith('/JPY'):
+                        coin = row['通貨'].split('/')[0]
+                        market = coin.lower() + '_jpy'
+                    elif row['通貨'] in TradeHistory.bf_currencies:
+                        coin = row['通貨']
+                        market = coin.lower()
+                    return {
+                        'time': row['取引日時'],
+                        'type': row['取引種別'],
+                        'price': row['価格'],
+                        'market': market,
+                        'amount': abs(row[coin]),
+                        'cost': abs(row.get('手数料(' + coin + ')', 0)),
+                        'exchange': exchanges['BF'],
+                    }
+            elif type == 'zaif_deposit':
+                rule = lambda row, currency: {
+                    'time': row['日時'],
+                    'amount': row['金額'],
+                    'market': currency,
+                    'type': tx_types['DEPOSIT'],
+                    'price': 0,
+                    'cost': 0,
+                    'exchange': exchanges['ZAIF'],
                 }
-                if row['通貨'] == 'BTC':
-                    # 預入 or 受け取り or 外部送付 or 手数料
-                    d['market'] = 'btc'
-                    d['amount'] = abs(row['BTC'])
-                    d['cost'] = abs(row['手数料(BTC)'])
-                elif row['通貨'] == 'MONA':
-                    # 預入 or 外部送付 or 手数料
-                    d['market'] = 'mona'
-                    d['amount'] = abs(row['MONA'])
-                    d['cost'] = abs(row['手数料(MONA)'])
-                elif row['通貨'] == 'JPY':
-                    d['market'] = 'jpy'
-                    d['amount'] = abs(row['JPY'])
-                    d['cost'] = 0
-                elif row['通貨'] == 'BTC/JPY':
-                    d['market'] = 'btc_jpy'
-                    d['amount'] = abs(row['BTC'])
-                    d['cost'] = abs(row['手数料(BTC)'])
-                elif row['通貨'] == 'MONA/JPY':
-                    d['market'] = 'mona_jpy'
-                    d['amount'] = abs(row['MONA'])
-                    d['cost'] = abs(row['手数料(MONA)'])
-                data2 = data2.append(pd.DataFrame(d, index=[0]), ignore_index=True)
-            return data2
-    def set_data(self, data, type):
-        self.data = self.format_data(data, type)
-    def append_data(self, data, type, currency=''):
-        self.data = self.data.append(self.format_data(data, type, currency))
-    def __getattr__(self, name):
-        return self.data[name]
+            elif type == 'zaif_token_deposit':
+                rule = lambda row, currency: {
+                    'time': row['日時'],
+                    'amount': row['金額'],
+                    'market': row['トークン'].lower(),
+                    'type': tx_types['DEPOSIT'],
+                    'price': 0,
+                    'cost': 0,
+                    'exchange': exchanges['ZAIF'],
+                }
+            elif type == 'zaif_purchase':
+                rule = lambda row, currency: {
+                    'time': row['日時'],
+                    'amount': row['数量'],
+                    'market': row['通貨'],
+                    'type': tx_types['PURCHASE'],
+                    'price': 0,
+                    'cost': row['価格'],
+                    'exchange': exchanges['ZAIF'],
+                }
+            elif type == 'zaif_bonus':
+                rule = lambda row, currency: {
+                    'time': row['支払日時'],
+                    'amount': row['支払ボーナス'],
+                    'market': 'jpy',
+                    'type': tx_types['RECEIVE'],
+                    'price': 0,
+                    'cost': 0,
+                    'exchange': exchanges['ZAIF'],
+                }
+            elif type == 'zaif_withdraw':
+                rule = lambda row, currency: {
+                    'time': row['日時'],
+                    'amount': row['金額'],
+                    'market': currency,
+                    'type': tx_types['WITHDRAW'],
+                    'price': 0,
+                    'cost': row['手数料'] ,
+                    'exchange': exchanges['ZAIF'],
+                }
+            return pd.DataFrame(
+                [rule(row, currency) for index, row in data.iterrows()],
+                columns=TradeHistory.columns
+            )
 
 
 class ProfitCalculator:
@@ -213,7 +195,8 @@ class ProfitCalculator:
         return market.split('_')[0]
     def load_history(self, data_list):
         for item in data_list['zaif_trade']:
-            self.trade.append_data(pd.read_csv(item['path']), 'zaif')
+            if os.path.exists(item['path']):
+                self.trade.append_data(pd.read_csv(item['path']), 'zaif')
         for item in data_list['zaif_deposit']:
             if os.path.exists(item['path']):
                self.trade.append_data(pd.read_csv(item['path']), 'zaif_deposit', item['currency'])
@@ -232,7 +215,8 @@ class ProfitCalculator:
         for item in data_list['bitflyer']:
             if os.path.exists(item['path']):
                 self.trade.append_data(pd.read_csv(item['path']), 'bitflyer')
-        self.trade.data = self.trade.data.sort_values(by='time')
+        self.trade.data['time'] = pd.to_datetime(self.trade.data['time'])
+        self.trade.data = self.trade.data.sort_values(by='time', ascending=True)
         self.trade.data = self.trade.data.reset_index(drop=True)
     def get_fair_value(self, time, symbol):
         time = time - timedelta(seconds=time.second)
@@ -251,16 +235,15 @@ class ProfitCalculator:
         if (count != 0):
             data = pd.DataFrame.from_dict(data['ohlc_data'])
         return data['close'][0]
-    def bid(self, row): # 売り
+    def bid(self, row):
         # Unit of fee in bid is jpy or btc
         coin_type = self.get_coin_type(row['market'])
         if row['market'].endswith('_jpy'):
             # self.profit += row['price'] * row['amount'] - math.ceil(self.acq_costs[coin_type] * row['amount'])
             self.profit += (row['price'] - math.ceil(self.acq_costs[coin_type])) * row['amount']
-            if row['exchange'] == 'zaif':
+            if row['exchange'] == exchanges['ZAIF']:
                 self.coins['jpy'] += row['price'] * row['amount'] - row['cost']
-            elif row['exchange'] == 'bitflyer':
-                print('bid', math.floor(row['price'] * row['amount']))
+            elif row['exchange'] == exchanges['BF']:
                 self.coins['jpy'] += math.floor(row['price'] * row['amount']) - row['cost']
         elif row['market'].endswith('_btc'):
             # Call an API to get a fair value at this moment.
@@ -276,15 +259,14 @@ class ProfitCalculator:
                 self.coins['btc'] += new_coins - row['cost']
                 self.acq_costs['btc'] = cost / self.coins['btc']
         self.coins[coin_type] -= row['amount']
-    def ask(self, row): # 買い
+    def ask(self, row):
         # Unit of fee in ask is buying currency
         coin_type = self.get_coin_type(row['market'])
         if row['market'].endswith('_jpy'):
             jpy = row['amount'] * row['price']
-            if row['exchange'] == 'zaif':
+            if row['exchange'] == exchanges['ZAIF']:
                 self.coins['jpy'] -= jpy
-            elif row['exchange'] == 'bitflyer':
-                print('ask:', math.ceil(jpy))
+            elif row['exchange'] == exchanges['BF']:
                 self.coins['jpy'] -= math.ceil(jpy)
             if self.coins[coin_type] == 0:
                 # if this was the first time to by this type of coin
@@ -308,33 +290,33 @@ class ProfitCalculator:
                 cost = former_cost + fair_value * row['amount']
                 self.coins[coin_type] += row['amount'] - row['cost']
                 self.acq_costs[coin_type] = cost / self.coins[coin_type]
-    def deposit(self, row): # 預入
+    def deposit(self, row):
         coin_type = row['market']
         if coin_type == 'jpy':
             self.coins['jpy'] += row['amount']
             self.deposit_jpy += row['amount'] - row['cost']
         else:
             self.coins[coin_type] += row['amount'] - row['cost']
-    def receive(self, row): # 受取
+    def receive(self, row):
         coin_type = row['market']
         if coin_type == 'jpy':
             self.coins['jpy'] += row['amount']
         else:
             self.coins[coin_type] += row['amount'] - row['cost']
-    def withdraw(self, row): # 出金
+    def withdraw(self, row):
         coin_type = row['market']
         if coin_type == 'jpy':
             self.coins['jpy'] -= row['amount'] + row['cost']
             self.deposit_jpy -= row['amount'] + row['cost']
         else:
             self.coins[coin_type] -= row['amount'] + row['cost']
-    def fee(self, row): # 手数料
+    def fee(self, row):
         coin_type = row['market']
         if coin_type == 'jpy':
             self.coins['jpy'] -= row['amount']
         else:
             self.coins[coin_type] -= row['amount']
-    def sending(self, row): # 外部送付
+    def send(self, row):
         coin_type = row['market']
         if coin_type == 'jpy':
             self.coins['jpy'] -= row['amount'] + row['cost']
@@ -352,21 +334,21 @@ class ProfitCalculator:
             n = n + 1
             #print(row)
             self.check_hard_fork(row)
-            if row['type'] == '売り':
+            if row['type'] == tx_types['BID']:
                 self.bid(row)
-            elif row['type'] == '買い':
+            elif row['type'] == tx_types['ASK']:
                 self.ask(row)
-            elif row['type'] == '受取':
+            elif row['type'] == tx_types['RECEIVE']:
                 self.receive(row)
-            elif row['type'] == '出金':
+            elif row['type'] == tx_types['WITHDRAW']:
                 self.withdraw(row)
-            elif row['type'] == '預入':
+            elif row['type'] == tx_types['DEPOSIT']:
                 self.deposit(row)
-            elif row['type'] == '手数料':
+            elif row['type'] == tx_types['FEE']:
                 self.fee(row)
-            elif row['type'] == '外部送付':
-                self.sending(row)
-            elif row['type'] == '購入':
+            elif row['type'] == tx_types['SEND']:
+                self.send(row)
+            elif row['type'] == tx_types['PURCHASE']:
                 self.purchase(row)
             # self.print_status()
             if n == num_of_tx:
