@@ -44,6 +44,7 @@ csv_types = {
     'BITBANK': 'bitbank',
     'BITBANK_DEPOSIT_WITHDRAW': 'bitbank_deposit_withdraw',
     'MONAPPY': 'monappy',
+    'MONAWALLET': 'monawallet',
     'TIPMONA': 'tipmona',
     'ICO': 'ico',
 }
@@ -256,6 +257,16 @@ class TradeHistory:
                     'cost': row['手数料'],
                     'exchange': wallets['TIPMONA'],
                 }
+            elif type == csv_types['MONAWALLET']:
+                rule = lambda row, currency: {
+                    'time': row['日時'],
+                    'type': row['種別'],
+                    'amount': row['金額'],
+                    'market': row['通貨'],
+                    'price': 0,
+                    'cost': row['手数料'],
+                    'exchange': wallets['MONAWALLET'],
+                }
             elif type == csv_types['ICO']:
                 rule = lambda row, currency: {
                     'time': row['日時'],
@@ -292,6 +303,8 @@ class ProfitCalculator:
     ]
     # Endpoint of Zaif API
     zaif_api = 'https://zaif.jp/zaif_chart_api/v1/history'
+    # Endpoint of Bitbank API
+    bitbank_api = "https://public.bitbank.cc/{pair}/candlestick/1min/{time}"
 
     def __init__(self, initial = {}):
         # Amount of every coin
@@ -312,9 +325,18 @@ class ProfitCalculator:
         self.deposit_jpy = 0
         self.last_tx_time = None
         self.trade = TradeHistory()
+        # cache of chart from Bitbank
+        self.chart_cache = {
+            "BTC_JPY": None,
+            "BCC_JPY": None,
+            "MONA_JPY": None,
+        }
 
     def ceil(self, data):
         return math.ceil(data)
+
+    def has_coin(self, coin):
+        return round(coin, 8) == 0
 
     def print_status(self):
         for year in self.profit.keys():
@@ -345,23 +367,43 @@ class ProfitCalculator:
         self.trade.data = self.trade.data.sort_values(by='time', ascending=True)
         self.trade.data = self.trade.data.reset_index(drop=True)
 
-    def get_fair_value(self, time, symbol):
+    def get_fair_value(self, time, symbol, exchange):
         time = time - timedelta(seconds=time.second)
-        params = {
-            'symbol': symbol.upper(),
-            'resolution': '1',
-            'from': int(time.timestamp()),
-            'to': int(time.timestamp()),
-        }
-        encoded_params = urlencode(params)
-        response = requests.get(ProfitCalculator.zaif_api, params=params)
-        if response.status_code != 200:
-            raise Exception('return status code is {}'.format(response.status_code))
-        data = json.loads(response.json())
-        count = data['data_count']
-        if (count != 0):
-            data = pd.DataFrame.from_dict(data['ohlc_data'])
-        return data['close'][0]
+        if exchange == wallets['ZAIF'] or symbol not in self.chart_cache.keys():
+            params = {
+                'symbol': symbol.upper(),
+                'resolution': '1',
+                'from': int(time.timestamp()),
+                'to': int(time.timestamp()),
+            }
+            encoded_params = urlencode(params)
+            response = requests.get(ProfitCalculator.zaif_api, params=params)
+            if response.status_code != 200:
+                raise Exception('return status code is {}'.format(response.status_code))
+            data = json.loads(response.json())
+            count = data['data_count']
+            if (count != 0):
+                data = pd.DataFrame.from_dict(data['ohlc_data'])
+            return data['close'][0]
+        elif exchange == wallets['BITBANK']:
+            ts = int(time.timestamp()) * 1000
+            symbol = symbol.replace('BCH', 'BCC')
+            if self.chart_cache[symbol] is None or ts not in self.chart_cache[symbol].index:
+                time = time - timedelta(hours=9)
+                url = self.bitbank_api.format(pair=symbol.lower(), time=time.strftime('%Y%m%d'))
+                response = requests.get(url)
+                data = response.json()
+                if data['success'] == 0:
+                    print('time=', time)
+                    print('symbol=', symbol)
+                    print('url=', url)
+                    print(data)
+                    raise Exception()
+                ohlcv = data['data']['candlestick'][0]["ohlcv"]
+                df = pd.DataFrame(ohlcv, columns=['open', 'high', 'low', 'close', 'volume', 'time'], dtype=float)
+                df['time'] = df['time'].astype('int')
+                self.chart_cache[symbol] = df.set_index('time')
+            return self.chart_cache[symbol].loc[ts]['close']
 
     def bid(self, row):
         # Unit of fee in bid is jpy or btc
@@ -374,15 +416,15 @@ class ProfitCalculator:
                 self.coins['jpy'][row['exchange']] += math.floor(row['price'] * row['amount']) - row['cost']
         elif row['market'].endswith('_btc'):
             # Call an API to get a fair value at this moment.
-            btc_fair_value = self.get_fair_value(row['time'], 'BTC_JPY')
-            alt_fair_value = self.get_fair_value(row['time'], coin_type.upper() + '_JPY')
+            btc_fair_value = self.get_fair_value(row['time'], 'BTC_JPY', row['exchange'])
+            alt_fair_value = self.get_fair_value(row['time'], coin_type.upper() + '_JPY', row['exchange'])
             # profits arise from selling ALT coins
             self.profit[row['time'].year] += (alt_fair_value - self.ceil(self.acq_costs[coin_type])) * row['amount']
 
             # update acquisition cost of BTC
             new_coins = row['price'] * row['amount']
             total_btc = sum(self.coins['btc'].values())
-            if total_btc == 0:
+            if self.has_coin(total_btc):
                 # If this was first time to have BTC
                 self.coins['btc'][row['exchange']] = new_coins - row['cost']
                 self.acq_costs['btc'] = btc_fair_value
@@ -404,7 +446,7 @@ class ProfitCalculator:
             elif row['exchange'] == wallets['BF']:
                 self.coins['jpy'][row['exchange']] -= self.ceil(jpy)
 
-            if total_coins == 0:
+            if self.has_coin(total_coins):
                 # if this was the first time to by this type of coin
                 self.coins[coin_type][row['exchange']] = row['amount'] - row['cost']
                 self.acq_costs[coin_type] = row['price']
@@ -416,8 +458,8 @@ class ProfitCalculator:
         elif row['market'].endswith('_btc'):
             self.coins['btc'][row['exchange']] -= row['price'] * row['amount']
             # fair value at this moment
-            fair_value = self.get_fair_value(row['time'], coin_type.upper() + '_JPY')
-            if total_coins == 0:
+            fair_value = self.get_fair_value(row['time'], coin_type.upper() + '_JPY', row['exchange'])
+            if self.has_coin(total_coins):
                 # if this was the first time to by this type of coin
                 self.coins[coin_type][row['exchange']] = row['amount'] - row['cost']
                 self.acq_costs[coin_type] = fair_value
@@ -431,7 +473,7 @@ class ProfitCalculator:
         self.deposit_jpy += row['cost']
         coin_type = row['market']
         total_coins = sum(self.coins[coin_type].values())
-        if self.acq_costs[coin_type] == 0:
+        if self.has_coin(total_coins):
             # if not coin yet
             self.coins[coin_type][row['exchange']] = row['amount']
             self.acq_costs[coin_type] = row['cost'] / sum(self.coins[coin_type].values())
@@ -462,7 +504,7 @@ class ProfitCalculator:
         [target, source] = row['market'].split('_')
         self.coins[source][row['exchange']] -= row['price']
         self.coins[target][row['exchange']] += row['amount']
-        source_fair_value = self.get_fair_value(row['time'], source.upper() + '_JPY')
+        source_fair_value = self.get_fair_value(row['time'], source.upper() + '_JPY', row['exchange'])
         target_fair_value = source_fair_value * row['price'] / row['amount']
         self.acq_costs[target] = target_fair_value
         self.profit[row['time'].year] += (source_fair_value - self.ceil(self.acq_costs[source])) * row['price']
@@ -493,7 +535,7 @@ class ProfitCalculator:
                 if callable(action):
                     action(row)
                     self.last_tx_time = row['time']
-            self.print_status()
+            # self.print_status()
             if index == num_of_tx:
                 break
 
@@ -540,6 +582,9 @@ if __name__ == "__main__":
         ],
         csv_types['BCINFO_PURCHASE']: [
             { 'path': 'purchase_bcinfo.csv' },
+        ],
+        csv_types['MONAWALLET']: [
+            { 'path': 'mona_wallet.csv' },
         ],
         csv_types['TIPMONA']: [
             { 'path': 'tipmona.csv' },
