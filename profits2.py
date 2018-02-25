@@ -31,7 +31,6 @@ tx_types = {
     'ICO': 'ICO',
 }
 csv_types = {
-    'ZAIF_TRADE_OLD': 'zaif_trade_old',
     'ZAIF_TRADE': 'zaif_trade',
     'ZAIF_CREDIT_TRADE': 'zaif_credit_trade',
     'ZAIF_DEPOSIT': 'zaif_deposit',
@@ -77,210 +76,189 @@ class TradeHistory:
         self.data = self.data.append(self.format_data(data, type, currency))
 
     def format_data(self, data, type, currency = ''):
-        if type == csv_types['ZAIF_TRADE_OLD']:
-            data.drop('コメント', axis=1, inplace=True)
-            if 'ボーナス円' in data.columns:
-                data.drop('ボーナス円', axis=1, inplace=True)
-            data.rename(columns = {
-                'マーケット': 'market',
-                '取引種別': 'type',
-                '価格': 'price',
-                '取引手数料': 'cost',
-                '数量': 'amount',
-                '日時': 'time',
-            }, inplace=True)
-            data = pd.concat([
-                data,
-                pd.DataFrame(
-                    [wallets['ZAIF'] for i in range(len(data.index))],
-                    columns=['exchange']
-                ),
-            ], axis=1)
-            return data
-        else:
-            # for row-wise process
-            if type == csv_types['BITFLYER']:
-                def rule(row, currency):
-                    if row['通貨'].endswith('/JPY'):
-                        coin = row['通貨'].split('/')[0]
-                        market = coin.lower() + '_jpy'
-                    elif row['通貨'] in TradeHistory.bf_currencies:
-                        coin = row['通貨']
-                        market = coin.lower()
-                    return {
-                        'time': row['取引日時'],
-                        'type': row['取引種別'],
-                        'price': row['価格'],
-                        'market': market,
-                        'amount': abs(row[coin]),
-                        'cost': abs(row.get('手数料(' + coin + ')', 0)),
-                        'exchange': wallets['BF'],
-                    }
-            elif type == csv_types['BITBANK']:
-                def rule(row, currency):
-                    type_map = {
-                        'sell': tx_types['BID'],
-                        'buy': tx_types['ASK'],
-                    }
-                    def market_map(market):
-                        if market == 'bcc_btc':
-                            return 'bch_btc'
-                        elif market == 'bcc_jpy':
-                            return 'bch_jpy'
-                        else:
-                            return market
-                    return {
-                        'time': row['取引日時'],
-                        'type': type_map[row['売/買']],
-                        'price': row['価格'],
-                        'market': market_map(row['通貨ペア']),
-                        'amount': row['数量'],
-                        'cost': row['手数料'],
-                        'exchange': wallets['BITBANK'],
-                    }
-            elif type == csv_types['BITBANK_DEPOSIT_WITHDRAW']:
-                rule = lambda row, currency: {
-                    'time': row['日時'],
-                    'type': row['種別'],
-                    'amount': row['金額'],
-                    'market': row['通貨'],
-                    'price': 0,
+        # for row-wise process
+        if type == csv_types['BITFLYER']:
+            def rule(row, currency):
+                if row['通貨'].endswith('/JPY'):
+                    coin = row['通貨'].split('/')[0]
+                    market = coin.lower() + '_jpy'
+                elif row['通貨'] in TradeHistory.bf_currencies:
+                    coin = row['通貨']
+                    market = coin.lower()
+                return {
+                    'time': row['取引日時'],
+                    'type': row['取引種別'],
+                    'price': row['価格'],
+                    'market': market,
+                    'amount': abs(row[coin]),
+                    'cost': abs(row.get('手数料(' + coin + ')', 0)),
+                    'exchange': wallets['BF'],
+                }
+        elif type == csv_types['BITBANK']:
+            def rule(row, currency):
+                type_map = {
+                    'sell': tx_types['BID'],
+                    'buy': tx_types['ASK'],
+                }
+                def market_map(market):
+                    if market == 'bcc_btc':
+                        return 'bch_btc'
+                    elif market == 'bcc_jpy':
+                        return 'bch_jpy'
+                    else:
+                        return market
+                return {
+                    'time': row['取引日時'],
+                    'type': type_map[row['売/買']],
+                    'price': row['価格'],
+                    'market': market_map(row['通貨ペア']),
+                    'amount': row['数量'],
                     'cost': row['手数料'],
                     'exchange': wallets['BITBANK'],
                 }
-            elif type == csv_types['ZAIF_TRADE']:
-                type_map = {
-                    'bid': tx_types['ASK'],
-                    'ask': tx_types['BID'],
-                }
-                rule = lambda row, currency: {
-                    'time': row['日時'],
-                    'type': type_map[row['取引種別']],
-                    'price': row['価格'],
-                    'market': row['マーケット'],
-                    'amount': row['数量'],
-                    'cost': row['取引手数料'] ,
-                    'exchange': wallets['ZAIF'],
-                }
-            elif type == csv_types['ZAIF_DEPOSIT']:
-                rule = lambda row, currency: {
-                    'time': row['日時'],
-                    'amount': row['金額'],
-                    'market': currency,
-                    'type': tx_types['DEPOSIT'],
-                    'price': 0,
-                    'cost': 0,
-                    'exchange': wallets['ZAIF'],
-                }
-            elif type == csv_types['ZAIF_ERC20_DEPOSIT']:
-                rule = lambda row, currency: {
-                    'time': row['日時'],
-                    'amount': row['金額'],
-                    'market': row['トークン'].lower(),
-                    'type': tx_types['DEPOSIT'],
-                    'price': 0,
-                    'cost': 0,
-                    'exchange': wallets['ZAIF'],
-                }
-            elif type == csv_types['ZAIF_PURCHASE']:
-                rule = lambda row, currency: {
-                    'time': row['日時'],
-                    'amount': row['数量'],
-                    'market': row['通貨'],
-                    'type': tx_types['PURCHASE'],
-                    'price': 0,
-                    'cost': row['価格'],
-                    'exchange': wallets['ZAIF'],
-                }
-            elif type == csv_types['BCINFO_PURCHASE']:
-                rule = lambda row, currency: {
-                    'time': row['日時'],
-                    'amount': row['数量'],
-                    'market': row['通貨'],
-                    'type': tx_types['PURCHASE'],
-                    'price': 0,
-                    'cost': row['価格'],
-                    'exchange': wallets['BLOCKCHAIN.INFO'],
-                }
-            elif type == csv_types['ZAIF_BONUS']:
-                rule = lambda row, currency: {
-                    'time': row['支払日時'],
-                    'amount': row['支払ボーナス'],
-                    'market': 'jpy',
-                    'type': tx_types['RECEIVE'],
-                    'price': 0,
-                    'cost': 0,
-                    'exchange': wallets['ZAIF'],
-                }
-            elif type == csv_types['ZAIF_CREDIT_TRADE']:
-                rule = lambda row, currency: {
-                    'time': row['決済完了日時'],
-                    'amount': row['損益（円）'],
-                    'market': 'jpy',
-                    'type': tx_types['RECEIVE'],
-                    'price': 0,
-                    'cost': 0,
-                    'exchange': wallets['ZAIF'],
-                }
-            elif type == csv_types['ZAIF_WITHDRAW']:
-                rule = lambda row, currency: {
-                    'time': row['日時'],
-                    'amount': row['金額'],
-                    'market': currency,
-                    'type': tx_types['WITHDRAW'],
-                    'price': 0,
-                    'cost': row['手数料'] ,
-                    'exchange': wallets['ZAIF'],
-                }
-            elif type == csv_types['MONAPPY']:
-                type_map = {
-                    '受け取り': tx_types['RECEIVE'],
-                    '送金': tx_types['SEND'],
-                    '手数料': tx_types['FEE'],
-                }
-                rule = lambda row, currency: {
-                    'time': row['日付'],
-                    'amount': abs(row['金額']),
-                    'market': 'mona',
-                    'type': type_map[row['種別']],
-                    'price': 0,
-                    'cost': 0,
-                    'exchange': wallets['MONAPPY'],
-                }
-            elif type == csv_types['TIPMONA']:
-                rule = lambda row, currency: {
-                    'time': row['日付'],
-                    'amount': abs(row['金額']),
-                    'market': 'mona',
-                    'type': row['種別'],
-                    'price': 0,
-                    'cost': row['手数料'],
-                    'exchange': wallets['TIPMONA'],
-                }
-            elif type == csv_types['MONAWALLET']:
-                rule = lambda row, currency: {
-                    'time': row['日時'],
-                    'type': row['種別'],
-                    'amount': row['金額'],
-                    'market': row['通貨'],
-                    'price': 0,
-                    'cost': row['手数料'],
-                    'exchange': wallets['MONAWALLET'],
-                }
-            elif type == csv_types['ICO']:
-                rule = lambda row, currency: {
-                    'time': row['日時'],
-                    'amount': row['数量'],
-                    'market': row['マーケット'],
-                    'type': tx_types['ICO'],
-                    'price': row['金額'],
-                    'cost': 0,
-                    'exchange': wallets['ZAIF'],
-                }
-            return pd.DataFrame(
-                [rule(row, currency) for index, row in data.iterrows()],
-                columns=TradeHistory.columns
-            )
+        elif type == csv_types['BITBANK_DEPOSIT_WITHDRAW']:
+            rule = lambda row, currency: {
+                'time': row['日時'],
+                'type': row['種別'],
+                'amount': row['金額'],
+                'market': row['通貨'],
+                'price': 0,
+                'cost': row['手数料'],
+                'exchange': wallets['BITBANK'],
+            }
+        elif type == csv_types['ZAIF_TRADE']:
+            type_map = {
+                'bid': tx_types['ASK'],
+                'ask': tx_types['BID'],
+            }
+            rule = lambda row, currency: {
+                'time': row['日時'],
+                'type': type_map[row['取引種別']],
+                'price': row['価格'],
+                'market': row['マーケット'],
+                'amount': row['数量'],
+                'cost': row['取引手数料'] ,
+                'exchange': wallets['ZAIF'],
+            }
+        elif type == csv_types['ZAIF_DEPOSIT']:
+            rule = lambda row, currency: {
+                'time': row['日時'],
+                'amount': row['金額'],
+                'market': currency,
+                'type': tx_types['DEPOSIT'],
+                'price': 0,
+                'cost': 0,
+                'exchange': wallets['ZAIF'],
+            }
+        elif type == csv_types['ZAIF_ERC20_DEPOSIT']:
+            rule = lambda row, currency: {
+                'time': row['日時'],
+                'amount': row['金額'],
+                'market': row['トークン'].lower(),
+                'type': tx_types['DEPOSIT'],
+                'price': 0,
+                'cost': 0,
+                'exchange': wallets['ZAIF'],
+            }
+        elif type == csv_types['ZAIF_PURCHASE']:
+            rule = lambda row, currency: {
+                'time': row['日時'],
+                'amount': row['数量'],
+                'market': row['通貨'],
+                'type': tx_types['PURCHASE'],
+                'price': 0,
+                'cost': row['価格'],
+                'exchange': wallets['ZAIF'],
+            }
+        elif type == csv_types['BCINFO_PURCHASE']:
+            rule = lambda row, currency: {
+                'time': row['日時'],
+                'amount': row['数量'],
+                'market': row['通貨'],
+                'type': tx_types['PURCHASE'],
+                'price': 0,
+                'cost': row['価格'],
+                'exchange': wallets['BLOCKCHAIN.INFO'],
+            }
+        elif type == csv_types['ZAIF_BONUS']:
+            rule = lambda row, currency: {
+                'time': row['支払日時'],
+                'amount': row['支払ボーナス'],
+                'market': 'jpy',
+                'type': tx_types['RECEIVE'],
+                'price': 0,
+                'cost': 0,
+                'exchange': wallets['ZAIF'],
+            }
+        elif type == csv_types['ZAIF_CREDIT_TRADE']:
+            rule = lambda row, currency: {
+                'time': row['決済完了日時'],
+                'amount': row['損益（円）'],
+                'market': 'jpy',
+                'type': tx_types['RECEIVE'],
+                'price': 0,
+                'cost': 0,
+                'exchange': wallets['ZAIF'],
+            }
+        elif type == csv_types['ZAIF_WITHDRAW']:
+            rule = lambda row, currency: {
+                'time': row['日時'],
+                'amount': row['金額'],
+                'market': currency,
+                'type': tx_types['WITHDRAW'],
+                'price': 0,
+                'cost': row['手数料'] ,
+                'exchange': wallets['ZAIF'],
+            }
+        elif type == csv_types['MONAPPY']:
+            type_map = {
+                '受け取り': tx_types['RECEIVE'],
+                '送金': tx_types['SEND'],
+                '手数料': tx_types['FEE'],
+            }
+            rule = lambda row, currency: {
+                'time': row['日付'],
+                'amount': abs(row['金額']),
+                'market': 'mona',
+                'type': type_map[row['種別']],
+                'price': 0,
+                'cost': 0,
+                'exchange': wallets['MONAPPY'],
+            }
+        elif type == csv_types['TIPMONA']:
+            rule = lambda row, currency: {
+                'time': row['日付'],
+                'amount': abs(row['金額']),
+                'market': 'mona',
+                'type': row['種別'],
+                'price': 0,
+                'cost': row['手数料'],
+                'exchange': wallets['TIPMONA'],
+            }
+        elif type == csv_types['MONAWALLET']:
+            rule = lambda row, currency: {
+                'time': row['日時'],
+                'type': row['種別'],
+                'amount': row['金額'],
+                'market': row['通貨'],
+                'price': 0,
+                'cost': row['手数料'],
+                'exchange': wallets['MONAWALLET'],
+            }
+        elif type == csv_types['ICO']:
+            rule = lambda row, currency: {
+                'time': row['日時'],
+                'amount': row['数量'],
+                'market': row['マーケット'],
+                'type': tx_types['ICO'],
+                'price': row['金額'],
+                'cost': 0,
+                'exchange': wallets['ZAIF'],
+            }
+        return pd.DataFrame(
+            [rule(row, currency) for index, row in data.iterrows()],
+            columns=TradeHistory.columns
+        )
 
 
 class ProfitCalculator:
@@ -503,7 +481,7 @@ class ProfitCalculator:
     def ico(self, row):
         [target, source] = row['market'].split('_')
         self.coins[source][row['exchange']] -= row['price']
-        self.coins[target][row['exchange']] += row['amount']
+        # self.coins[target][row['exchange']] += row['amount']
         source_fair_value = self.get_fair_value(row['time'], source.upper() + '_JPY', row['exchange'])
         target_fair_value = source_fair_value * row['price'] / row['amount']
         self.acq_costs[target] = target_fair_value
@@ -560,6 +538,9 @@ if __name__ == "__main__":
             { 'path': 'bch_withdraw.csv', 'currency': 'bch' },
             { 'path': 'eth_withdraw.csv', 'currency': 'eth' },
             { 'path': 'mona_withdraw.csv', 'currency': 'mona' },
+        ],
+        csv_types['ZAIF_ERC20_DEPOSIT']: [
+            { 'path': 'erc20_deposit.csv', 'currency': 'erc20.cms' },
         ],
         csv_types['ZAIF_BONUS']: [
             { 'path': 'obtain_bonus.csv' },
