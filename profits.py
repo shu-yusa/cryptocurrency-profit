@@ -580,56 +580,56 @@ if __name__ == "__main__":
     # List of csv files for transaction history
     data_list = {
         csv_types['ZAIF_TRADE']: [
-            {'path': '52150_2017_1.csv'},
-            {'path': '52150_2018_1.csv'},
+            {'path': 'csv/52150_2017_1.csv'},
+            {'path': 'csv/52150_2018_1.csv'},
         ],
         csv_types['ZAIF_CREDIT_TRADE']: [
-            {'path': '52150_2017_2.csv'},
+            {'path': 'csv/52150_2017_2.csv'},
         ],
         csv_types['ZAIF_DEPOSIT']: [
-            {'path': 'jpy_deposit.csv', 'currency': 'jpy'},
-            {'path': 'btc_deposit.csv', 'currency': 'btc'},
-            {'path': 'mona_deposit.csv', 'currency': 'mona'},
+            {'path': 'csv/jpy_deposit.csv', 'currency': 'jpy'},
+            {'path': 'csv/btc_deposit.csv', 'currency': 'btc'},
+            {'path': 'csv/mona_deposit.csv', 'currency': 'mona'},
         ],
         csv_types['ZAIF_WITHDRAW']: [
-            {'path': 'btc_withdraw.csv', 'currency': 'btc'},
-            {'path': 'bch_withdraw.csv', 'currency': 'bch'},
-            {'path': 'eth_withdraw.csv', 'currency': 'eth'},
-            {'path': 'mona_withdraw.csv', 'currency': 'mona'},
+            {'path': 'csv/btc_withdraw.csv', 'currency': 'btc'},
+            {'path': 'csv/bch_withdraw.csv', 'currency': 'bch'},
+            {'path': 'csv/eth_withdraw.csv', 'currency': 'eth'},
+            {'path': 'csv/mona_withdraw.csv', 'currency': 'mona'},
         ],
         csv_types['ZAIF_ERC20_DEPOSIT']: [
-            {'path': 'erc20_deposit.csv', 'currency': 'erc20.cms'},
+            {'path': 'csv/erc20_deposit.csv', 'currency': 'erc20.cms'},
         ],
         csv_types['ZAIF_BONUS']: [
-            {'path': 'obtain_bonus.csv'},
+            {'path': 'csv/obtain_bonus.csv'},
         ],
         csv_types['BITFLYER']: [
-            {'path': 'TradeHistory.csv'},
+            {'path': 'csv/TradeHistory.csv'},
         ],
         csv_types['BITBANK']: [
-            {'path': 'trade_history_bitbank.csv'},
+            {'path': 'csv/trade_history_bitbank.csv'},
         ],
         csv_types['MONAPPY']: [
-            {'path': 'monappy_transaction.csv'},
+            {'path': 'csv/monappy_transaction.csv'},
         ],
         # custom csv files
         csv_types['BITBANK_DEPOSIT_WITHDRAW']: [
-            {'path': 'deposit_withdraw_bitbank.csv'},
+            {'path': 'csv/deposit_withdraw_bitbank.csv'},
         ],
         csv_types['ZAIF_PURCHASE']: [
-            {'path': 'purchase.csv'},
+            {'path': 'csv/purchase.csv'},
         ],
         csv_types['BCINFO_PURCHASE']: [
-            {'path': 'purchase_bcinfo.csv'},
+            {'path': 'csv/purchase_bcinfo.csv'},
         ],
         csv_types['MONAWALLET']: [
-            {'path': 'mona_wallet.csv'},
+            {'path': 'csv/mona_wallet.csv'},
         ],
         csv_types['TIPMONA']: [
-            {'path': 'tipmona.csv'},
+            {'path': 'csv/tipmona.csv'},
         ],
         csv_types['ICO']: [
-            {'path': 'ico.csv'}
+            {'path': 'csv/ico.csv'}
         ],
     }
 
