@@ -5,6 +5,7 @@ import json
 import pandas as pd
 from datetime import timedelta
 import requests
+import pickle
 
 
 # global settings
@@ -358,6 +359,28 @@ class ProfitCalculator:
             "MONA_JPY": None,
         }
 
+    def save(self, year):
+        obj = {
+            "coins": self.coins,
+            "acq_costs": self.acq_costs,
+            "hf_flags": self.hf_flags,
+            "deposit_jpy": self.deposit_jpy,
+            "profit": self.profit,
+            "last_tx_time": self.last_tx_time
+        }
+        with open("cache_" + str(year) + '.pickle', mode="wb") as f:
+            pickle.dump(obj, f)
+
+    def load(self, year):
+        with open("cache" + str(year) + '.pickle', mode="rb") as f:
+            obj = pickle.load(f)
+            self.coins = obj.coins
+            self.acq_costs = obj.acq_costs
+            self.hf_flags = obj.hf_flags
+            self.deposit_jpy = obj.deposit_jpy
+            self.profit = obj.profit
+            self.last_tx_time = obj.last_tx_time
+
     def ceil(self, data):
         return data
         return math.ceil(data)
@@ -415,10 +438,10 @@ class ProfitCalculator:
                 data = pd.DataFrame.from_dict(data['ohlc_data'])
             return data['close'][0]
         elif exchange == wallets['BITBANK']:
+            time = time - timedelta(hours=9)
             ts = int(time.timestamp()) * 1000
             symbol = symbol.replace('BCH', 'BCC')
             if self.chart_cache[symbol] is None or ts not in self.chart_cache[symbol].index:
-                time = time - timedelta(hours=9)
                 url = self.bitbank_api.format(pair=symbol.lower(), time=time.strftime('%Y%m%d'))
                 response = requests.get(url)
                 data = response.json()
@@ -433,6 +456,9 @@ class ProfitCalculator:
                 df['time'] = df['time'].astype('int')
                 self.chart_cache[symbol] = df.set_index('time')
             return self.chart_cache[symbol].loc[ts]['close']
+        else:
+            print("ERROR")
+            raise
 
     def bid(self, row):
         # Unit of fee in bid is jpy or btc
@@ -551,7 +577,11 @@ class ProfitCalculator:
 
     def calculate(self, num_of_tx=-1):
         inv_tx_types = {v: k for k, v in tx_types.items()}
+        prev_year = self.trade.data.iloc[0]['time'].year
+        print(prev_year)
         for index, row in self.trade.data.iterrows():
+            # if prev_year != row['time'].year:
+            #     self.save(prev_year)
             prev_profit = self.profit[row['time'].year]
             self.check_hard_fork(row)
             # Reflection
