@@ -385,6 +385,15 @@ class ProfitCalculator:
         return data
         return math.ceil(data)
 
+    def isZaif(self, exchange):
+        return exchange == wallets['ZAIF']
+
+    def isBf(self, exchange):
+        return exchange == wallets['BF']
+
+    def isBitbank(self, exchange):
+        return exchange == wallets['BITBANK']
+
     def has_coin(self, coin):
         return round(coin, 8) == 0
 
@@ -422,7 +431,7 @@ class ProfitCalculator:
 
     def get_fair_value(self, time, symbol, exchange):
         time = time - timedelta(seconds=time.second)
-        if exchange == wallets['ZAIF'] or symbol not in self.chart_cache.keys():
+        if self.isZaif(exchange) or symbol not in self.chart_cache.keys():
             params = {
                 'symbol': symbol.upper(),
                 'resolution': '1',
@@ -437,7 +446,7 @@ class ProfitCalculator:
             if (count != 0):
                 data = pd.DataFrame.from_dict(data['ohlc_data'])
             return data['close'][0]
-        elif exchange == wallets['BITBANK']:
+        elif self.isBitbank(exchange):
             time = time - timedelta(hours=9)
             ts = int(time.timestamp()) * 1000
             symbol = symbol.replace('BCH', 'BCC')
@@ -465,9 +474,9 @@ class ProfitCalculator:
         coin_type = self.get_coin_type(row['market'])
         if row['market'].endswith('_jpy'):
             self.profit[row['time'].year] += (row['price'] - self.ceil(self.acq_costs[coin_type])) * row['amount']
-            if row['exchange'] == wallets['ZAIF']:
+            if self.isZaif(row['exchange']) or self.isBitbank(row['exchange']):
                 self.coins['jpy'][row['exchange']] += row['price'] * row['amount'] - row['cost']
-            elif row['exchange'] == wallets['BF']:
+            elif self.isBf(row['exchange']):
                 self.coins['jpy'][row['exchange']] += math.floor(row['price'] * row['amount']) - row['cost']
         elif row['market'].endswith('_btc'):
             # Call an API to get a fair value at this moment.
@@ -496,9 +505,9 @@ class ProfitCalculator:
         total_coins = sum(self.coins[coin_type].values())
         if row['market'].endswith('_jpy'):
             jpy = row['amount'] * row['price']
-            if row['exchange'] == wallets['ZAIF']:
+            if self.isZaif(row['exchange']) or self.isBitbank(row['exchange']):
                 self.coins['jpy'][row['exchange']] -= jpy
-            elif row['exchange'] == wallets['BF']:
+            elif self.isBf(row['exchange']):
                 self.coins['jpy'][row['exchange']] -= self.ceil(jpy)
 
             if self.has_coin(total_coins):

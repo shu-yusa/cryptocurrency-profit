@@ -4,6 +4,7 @@ This script calculates profits(in Japanese Yen) in the course of trading of cryp
 ## Available Exchanges(only spot trading)
 * [Zaif](https://zaif.jp?ac=grgdh633wu)
 * [bitFlyer](https://bitflyer.jp/)
+* [Bitbank](https://bitbank.cc/)
 
 ## Requirements
 * Python 3.x
@@ -34,10 +35,3 @@ python profits.py
 
 ## Reference
 * [仮想通貨に関する所得の計算方法等について](https://www.nta.go.jp/shiraberu/zeiho-kaishaku/joho-zeikaishaku/shotoku/shinkoku/171127/01.pdf)
-
-# 暗号通貨取引における利益を計算するためのプログラム
-取引所での暗号通貨取引における利益計算を行います。
-## 対応取引所
-* [Zaif](https://zaif.jp?ac=grgdh633wu)
-* [bitFlyer](https://bitflyer.jp/)
-
