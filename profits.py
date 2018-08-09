@@ -1,4 +1,5 @@
 import traceback
+import sys
 import os
 import math
 import json
@@ -425,7 +426,7 @@ class ProfitCalculator:
             for item in value:
                 if os.path.exists(item['path']):
                     self.trade.append_data(pd.read_csv(item['path']), key, item.get('currency', ''))
-        self.trade.data['time'] = pd.to_datetime(self.trade.data['time'])
+        self.trade.data['time'] = pd.to_datetime(self.trade.data['time'], utc=True)
         self.trade.data = self.trade.data.sort_values(by='time', ascending=True)
         self.trade.data = self.trade.data.reset_index(drop=True)
 
@@ -609,7 +610,7 @@ class ProfitCalculator:
             self.print_status()
             if index == num_of_tx:
                 break
-        self.trade.data.to_csv('foo.csv')
+        # self.trade.data.to_csv('foo.csv')
 
     def output(self, path):
         pass
