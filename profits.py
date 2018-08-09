@@ -431,7 +431,8 @@ class ProfitCalculator:
 
     def get_fair_value(self, time, symbol, exchange):
         time = time - timedelta(seconds=time.second)
-        if self.isZaif(exchange) or symbol not in self.chart_cache.keys():
+        symbol_bitbank = symbol.replace('BCH', 'BCC')
+        if self.isZaif(exchange) or symbol_bitbank not in self.chart_cache.keys():
             params = {
                 'symbol': symbol.upper(),
                 'resolution': '1',
@@ -449,22 +450,21 @@ class ProfitCalculator:
         elif self.isBitbank(exchange):
             time = time - timedelta(hours=9)
             ts = int(time.timestamp()) * 1000
-            symbol = symbol.replace('BCH', 'BCC')
-            if self.chart_cache[symbol] is None or ts not in self.chart_cache[symbol].index:
-                url = self.bitbank_api.format(pair=symbol.lower(), time=time.strftime('%Y%m%d'))
+            if self.chart_cache[symbol_bitbank] is None or ts not in self.chart_cache[symbol_bitbank].index:
+                url = self.bitbank_api.format(pair=symbol_bitbank.lower(), time=time.strftime('%Y%m%d'))
                 response = requests.get(url)
                 data = response.json()
                 if data['success'] == 0:
                     print('time=', time)
-                    print('symbol=', symbol)
+                    print('symbol_bitbank=', symbol_bitbank)
                     print('url=', url)
                     print(data)
                     raise Exception()
                 ohlcv = data['data']['candlestick'][0]["ohlcv"]
                 df = pd.DataFrame(ohlcv, columns=['open', 'high', 'low', 'close', 'volume', 'time'], dtype=float)
                 df['time'] = df['time'].astype('int')
-                self.chart_cache[symbol] = df.set_index('time')
-            return self.chart_cache[symbol].loc[ts]['close']
+                self.chart_cache[symbol_bitbank] = df.set_index('time')
+            return self.chart_cache[symbol_bitbank].loc[ts]['close']
         else:
             print("ERROR")
             raise
