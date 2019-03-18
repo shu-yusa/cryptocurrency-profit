@@ -349,6 +349,7 @@ class ProfitCalculator:
         self.profit = {
             2017: 0,
             2018: 0,
+            2019: 0,
         }
         self.deposit_jpy = 0
         self.last_tx_time = None
@@ -470,7 +471,7 @@ class ProfitCalculator:
             print("ERROR")
             raise
 
-    def bid(self, row):
+    def bid(self, row): # sell
         # Unit of fee in bid is jpy or btc
         coin_type = self.get_coin_type(row['market'])
         if row['market'].endswith('_jpy'):
@@ -500,7 +501,7 @@ class ProfitCalculator:
                 self.acq_costs['btc'] = cost / sum(self.coins['btc'].values())
         self.coins[coin_type][row['exchange']] -= row['amount']
 
-    def ask(self, row):
+    def ask(self, row): # buy
         # Unit of fee in ask is buying currency
         coin_type = self.get_coin_type(row['market'])
         total_coins = sum(self.coins[coin_type].values())
@@ -511,27 +512,40 @@ class ProfitCalculator:
             elif self.isBf(row['exchange']):
                 self.coins['jpy'][row['exchange']] -= self.ceil(jpy)
 
+            # 手数料(bitbankはJPY)
+            if self.isBitbank(row['exchange']):
+                self.coins['jpy'][row['exchange']] -= row['cost']
+            else:
+                self.coins[coin_type][row['exchange']] -= row['cost']
+
             if self.has_coin(total_coins):
                 # if this was the first time to by this type of coin
-                self.coins[coin_type][row['exchange']] = row['amount'] - row['cost']
+                self.coins[coin_type][row['exchange']] = row['amount']
                 self.acq_costs[coin_type] = row['price']
             else:
                 former_cost = self.acq_costs[coin_type] * total_coins
                 cost = former_cost + jpy
-                self.coins[coin_type][row['exchange']] += row['amount'] - row['cost']
+                self.coins[coin_type][row['exchange']] += row['amount']
                 self.acq_costs[coin_type] = cost / sum(self.coins[coin_type].values())
         elif row['market'].endswith('_btc'):
             self.coins['btc'][row['exchange']] -= row['price'] * row['amount']
             # fair value at this moment
             fair_value = self.get_fair_value(row['time'], coin_type.upper() + '_JPY', row['exchange'])
+
+            # 手数料(bitbankはBTC)
+            if self.isBitbank(row['exchange']):
+                self.coins['btc'][row['exchange']] -= row['cost']
+            else:
+                self.coins[coin_type][row['exchange']] -= row['cost']
+
             if self.has_coin(total_coins):
                 # if this was the first time to by this type of coin
-                self.coins[coin_type][row['exchange']] = row['amount'] - row['cost']
+                self.coins[coin_type][row['exchange']] = row['amount']
                 self.acq_costs[coin_type] = fair_value
             else:
                 former_cost = self.acq_costs[coin_type] * total_coins
                 cost = former_cost + fair_value * row['amount']
-                self.coins[coin_type][row['exchange']] += row['amount'] - row['cost']
+                self.coins[coin_type][row['exchange']] += row['amount']
                 self.acq_costs[coin_type] = cost / sum(self.coins[coin_type].values())
 
     def purchase(self, row):
